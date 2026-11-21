@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Burmese stroke order</title>
+<style>
+  :root { --ink: #1F2340; --ghost: #E4DAC6; --bg: #FBF8F1; --line: #D8CFBD; --muted: #6E665A; --accent: #AE3628; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 24px; color: var(--muted); }
+  .player { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; align-items: start; }
+  .stage { background: #fff; border: 1px solid var(--line); border-radius: 16px; aspect-ratio: 1; display: grid; place-items: center; }
+  .stage svg { width: 86%; height: 86%; }
+  .rule { stroke: var(--line); stroke-width: .4; stroke-dasharray: 2 2; }
+  .ghost { fill: var(--ghost); }
+  .band { fill: var(--ink); }
+  .pen { fill: var(--accent); }
+  .info .char { font-size: 56px; line-height: 1.1; }
+  .info .meta { color: var(--muted); margin: 4px 0 16px; }
+  .flag { display: inline-block; font-size: 13px; padding: 2px 8px; border-radius: 99px; background: #F3E3DF; color: var(--accent); }
+  button { font: inherit; cursor: pointer; }
+  .controls button { height: 44px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line); background: #fff; color: var(--ink); margin-right: 8px; }
+  .controls button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 32px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+  .grid button { height: 64px; border-radius: 12px; border: 1px solid var(--line); background: #fff; color: var(--ink); padding: 6px; }
+  .grid button svg { width: 100%; height: 100%; }
+  .grid button svg path { fill: var(--ink); }
+  .grid button[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+  .note { color: var(--muted); font-size: 14px; margin-top: 32px; }
+  @media (max-width: 720px) { .player { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Burmese stroke order</h1>
+  <p class="lead">How each Burmese letter and mark is written, stroke by stroke. Pick a shape and press Play.</p>
+  <div class="player">
+    <div class="stage"><svg id="pad" role="img" aria-label="Writing animation"></svg></div>
+    <div class="info">
+      <div class="char" id="char"></div>
+      <div class="meta" id="meta"></div>
+      <div class="controls"><button class="primary" id="play">Play</button><button id="slow">½×</button></div>
+    </div>
+  </div>
+  <h2>Consonants</h2><div class="grid" id="g-consonant"></div>
+  <h2>Vowel signs, medials and marks</h2><div class="grid" id="g-mark"></div>
+  <h2>Other forms</h2><div class="grid" id="g-other"></div>
+  <p class="note">Shapes from the Padauk Book font by SIL Global (SIL Open Font License 1.1). Stroke data by the Myanmar Culture Club. This page needs to be served over http (for example <code>python3 -m http.server</code>) so it can load <code>data/strokes.json</code>.</p>
+</main>
+<script>
+(async () => {
+  const NS = "http://www.w3.org/2000/svg", $ = id => document.getElementById(id);
+  const mk = (n, a, p) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; };
+  const data = await (await fetch("data/strokes.json")).json();
+  const SPEED = data.playback.speed_units_per_second, GAP = data.playback.pause_between_bands_seconds * 1000;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const boxOf = d => { const s = mk("svg", { width: 0, height: 0, style: "position:absolute;visibility:hidden" }, document.body), p = mk("path", { d }, s), b = p.getBBox(); s.remove(); return b; };
+  // each band's running length, measured along the middle of the band
+  data.glyphs.forEach(g => { g.box = boxOf(g.outline); g.bands.forEach(b => { b.m = [0]; for (let k = 1; k < b.a.length; k++) b.m.push(b.m[k - 1] + Math.hypot((b.a[k][0] + b.b[k][0] - b.a[k - 1][0] - b.b[k - 1][0]) / 2, (b.a[k][1] + b.b[k][1] - b.a[k - 1][1] - b.b[k - 1][1]) / 2)); }); });
+
+  let cur = null, raf = 0, timer = 0, rate = 1, bandEls = [], pen;
+  function view(g, pad) { const b = g.box, s = Math.max(b.width, b.height) + pad * 2; return [b.x + b.width / 2 - s / 2, b.y + b.height / 2 - s / 2, s, s].join(" "); }
+  // At length d along a band, the ink is a[0..k] then b[k..0]: it fills from the start with a straight front.
+  function shape(b, d) {
+    let k = 0; while (k < b.m.length - 1 && b.m[k + 1] <= d) k++;
+    const pts = b.a.slice(0, k + 1).concat(b.b.slice(0, k + 1).reverse());
+    return { d: "M" + pts.map(p => p[0].toFixed(2) + " " + p[1].toFixed(2)).join("L") + "Z", tip: [(b.a[k][0] + b.b[k][0]) / 2, (b.a[k][1] + b.b[k][1]) / 2] };
+  }
+  function stop() { cancelAnimationFrame(raf); clearTimeout(timer); }
+  function show(g) {
+    stop(); cur = g; const pad = $("pad"); pad.innerHTML = "";
+    pad.setAttribute("viewBox", view(g, 12));
+    [data.metrics.ink_top, 0].forEach(y => mk("line", { class: "rule", x1: -200, x2: 400, y1: y, y2: y }, pad));
+    mk("path", { class: "ghost", d: g.outline }, pad);
+    bandEls = g.bands.map(() => mk("path", { class: "band", d: "" }, pad));
+    pen = mk("circle", { class: "pen", r: 1.6, opacity: 0 }, pad);
+    $("char").textContent = (g.kind === "mark" ? "◌" : "") + g.char;
+    $("meta").innerHTML = [g.latin, g.name, g.bands.length + (g.bands.length > 1 ? " strokes" : " stroke")].filter(Boolean).join(" · ") + (g.needs_review ? ' <br><span class="flag">needs review</span>' : "");
+    document.querySelectorAll(".grid button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.id === g.id)));
+    if (reduced) bandEls.forEach((e, i) => e.setAttribute("d", shape(g.bands[i], Infinity).d));
+  }
+  function play() {
+    if (!cur) return; stop(); const g = cur; bandEls.forEach(e => e.setAttribute("d", ""));
+    if (reduced) { show(g); return; }
+    let i = 0, t0 = performance.now();
+    const step = now => {
+      const b = g.bands[i], tot = b.m[b.m.length - 1], d = Math.min(tot, (now - t0) / 1000 * SPEED * rate), s = shape(b, d);
+      bandEls[i].setAttribute("d", s.d); pen.setAttribute("cx", s.tip[0]); pen.setAttribute("cy", s.tip[1]); pen.setAttribute("opacity", 1);
+      if (d < tot) { raf = requestAnimationFrame(step); return; }
+      i++; if (i >= g.bands.length) { pen.setAttribute("opacity", 0); return; }
+      timer = setTimeout(() => { t0 = performance.now(); raf = requestAnimationFrame(step); }, GAP / rate);
+    };
+    raf = requestAnimationFrame(step);
+  }
+  const groups = { consonant: $("g-consonant"), mark: $("g-mark") };
+  data.glyphs.forEach(g => {
+    const b = document.createElement("button"); b.dataset.id = g.id; b.title = g.latin + (g.name ? " · " + g.name : "");
+    b.setAttribute("aria-label", g.char + " " + g.latin); b.setAttribute("aria-pressed", "false");
+    const s = mk("svg", { viewBox: view(g, 6), "aria-hidden": "true" }, b); mk("path", { d: g.outline }, s);
+    b.onclick = () => { show(g); play(); };
+    (groups[g.kind] || $("g-other")).appendChild(b);
+  });
+  $("play").onclick = play;
+  $("slow").onclick = () => { rate = rate === 1 ? 0.5 : 1; $("slow").textContent = rate === 1 ? "½×" : "1×"; };
+  show(data.glyphs[0]);
+})();
+</script>
+</body>
+</html>
